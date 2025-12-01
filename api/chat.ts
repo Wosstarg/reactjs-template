@@ -1,18 +1,23 @@
-// api/chat.ts — финальная рабочая версия
+// api/chat.ts
 export default async function handler(req: Request) {
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return new Response('Method not allowed', { status: 405 });
   }
 
   const { message } = await req.json();
 
-  const apiKey = import.meta.env.DEEPSEEK_API_KEY;
+  // Vercel в Edge Functions подставляет переменные через process.env
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+
   if (!apiKey) {
-    return new Response(JSON.stringify({ reply: 'API ключ не найден' }), { status: 500 });
+    return new Response(JSON.stringify({ reply: 'API ключ не найден (проверь переменную в Vercel)' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -21,23 +26,32 @@ export default async function handler(req: Request) {
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [
-          { role: 'system', content: 'Ты — профессиональный ИИ-психолог и эксперт по играм. Отвечай на русском языке, глубоко и по делу.' },
-          { role: 'user', content: message }
+          { role: 'system', content: 'Ты — профессиональный ИИ-психолог и эксперт по играм. Отвечай на русском, глубоко, с примерами, без медицинских диагнозов.' },
+          { role: 'user', content: message },
         ],
         temperature: 0.7,
-        max_tokens: 1000
-      })
+        max_tokens: 1000,
+      }),
     });
 
-    const data = await response.json();
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('DeepSeek error:', err);
+      return new Response(JSON.stringify({ reply: 'Ошибка DeepSeek' }), { status: 502 });
+    }
+
+    const data = await res.json();
     const reply = data.choices?.[0]?.message?.content?.trim() || 'Не смог ответить';
 
     return new Response(JSON.stringify({ reply }), {
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ reply: 'Ошибка сервера' }), { status: 500 });
+    console.error('API error:', error);
+    return new Response(JSON.stringify({ reply: 'Серверная ошибка' }), { status: 500 });
   }
 }
 
-export const config = { runtime: 'edge' };
+export const config = {
+  runtime: 'edge',
+};
